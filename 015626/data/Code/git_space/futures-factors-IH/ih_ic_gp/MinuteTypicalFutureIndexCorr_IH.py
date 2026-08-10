@@ -1,0 +1,24 @@
+from future_factor import FutureFactor
+import numpy as np
+
+
+class MinuteTypicalFutureIndexCorr_IH(FutureFactor):
+    '''
+    Description: corr((close + high + low) / 3, (close_000905.SH + high_000905.SH + low_000905.SH) / 3, 45)
+    Class: Future_Spot_Price
+    Author: jinpx, modified by hefj
+    '''
+    data_type = 'Future'
+    instrument_type = 'recent'
+    days_past = 1
+    data_dict = {}
+    data_dict['Continuous_Data'] = {'IH':['close', 'high', 'low']}
+    data_dict['Index_Id'] = {'000016.SH': ['close', 'high', 'low']}
+    normalize_size = 20 * 237
+    normalize_type = 'ts_rank'
+    
+    def calculate(self, data):
+        typical = (data['close_cont_IH'].values[-45:] + data['high_cont_IH'].values[-45:] + data['low_cont_IH'].values[-45:]) / 3
+        index_typical = (data['close_000016.SH'].values[-45:] + data['high_000016.SH'].values[-45:] + data['low_000016.SH'].values[-45:]) / 3
+        f = np.corrcoef(typical, index_typical)[0, 1]
+        return f

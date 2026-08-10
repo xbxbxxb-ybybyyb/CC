@@ -1,0 +1,33 @@
+import scipy.stats
+import pandas as pd
+from overnight.factor_generator import FactorGenerator
+from overnight.naming_config import *
+import warnings
+from overnight.utility import *
+
+
+class wsc_pv_7(FactorGenerator):
+
+    def __init__(self, *args, **kwargs):
+        name1 = 'close_alla_daily_' + minute_to_daily_tag
+        required_columns=[name1, 'close_000905.SH']
+        super().__init__(*args, required_columns=required_columns, ts_norm_method='ts_rank', ts_norm_bars=20, **kwargs)
+
+    def on_bar(self, data_dict):
+        '''中证500_日zz800_Univ分位数'''
+        zz800_stk_list = self.get_mdconstant('zz800_stock_list')
+        close_000905 = data_dict['close_000905.SH']
+        close_zz800_daily_1449 = data_dict['close_alla_daily_' + minute_to_daily_tag][zz800_stk_list]
+
+        close_000905_daily_1449 = close_000905[close_000905.index.indexer_at_time(trade_stop_time)]
+        close_000905_daily_1449.index = pd.to_datetime(close_000905_daily_1449.index.date)
+        close_000905_daily_1449.index.name = 'dt'
+        spot_ret = ts_pct_change(close_000905_daily_1449, 1)
+        stk_ret = ts_pct_change(close_zz800_daily_1449, 1)
+
+        i_date = stk_ret.index[-1]
+        factor = pd.DataFrame(index=[i_date], columns=[self.__class__.__name__])
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', FutureWarning)
+            factor.loc[i_date] = -scipy.stats.percentileofscore(stk_ret.loc[i_date].dropna(), spot_ret.loc[i_date])
+        return factor

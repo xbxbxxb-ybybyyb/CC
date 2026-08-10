@@ -1,0 +1,42 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Sep 22 17:55:14 2021
+
+@author: appadmin
+"""
+
+import numpy as np
+import numpy.ma as ma
+import bottleneck as bk
+from operators_cc import *
+from operators_wsc_1_0 import *
+from future_factor import FutureFactor
+
+class Short_CFG7_CC_IF_IH(FutureFactor):
+
+    data_type = 'IndexStock' 
+    days_past = 1
+    data_dict = dict()
+    data_dict['Stock'] = ['turnover_rate', 'close', 'open', 'adjfactor', 'weight']
+    normalize_size = 1200
+    normalize_type = 'ts_rank'
+
+    handle_preadj = True
+
+    def calculate(self, data):
+        stk_close = data['close_preadj'].values[-152:]
+        stk_open = data['open_preadj'].values[-152:]
+        stk_turnover = data['turnover_rate'].values[-152:]
+        ww = data['weight'].values[-152:]
+        ret = stk_close / stk_open - 1
+        hret = ts_pct_change(stk_close, 1)*ww
+        stk_turnover[stk_close >= stk_open] = np.nan
+        ret[stk_close >= stk_open] = np.nan
+        cc1 = stk_turnover / r(abs(ret))
+        ccc1 = bk.move_mean(cc1, 120, 7, axis=0)*ww
+        ccc1_mask = np.expand_dims(np.nanmedian(ccc1, axis=1), axis=-1)
+        hret1 = ma.array(hret, mask=(ccc1<=ccc1_mask))
+        hret2 = ma.array(hret, mask=(ccc1>=ccc1_mask))
+        cc2 = np.nanmean(hret1, axis=1) - np.nanmean(hret2, axis=1)
+        ccc2 = np.nanmean(cc2[-30:])
+        return ccc2

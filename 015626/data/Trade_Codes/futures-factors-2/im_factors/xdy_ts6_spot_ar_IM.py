@@ -1,0 +1,31 @@
+from future_factor import FutureFactor
+import numpy as np
+import bottleneck as bk
+import pandas as pd
+
+class xdy_ts6_spot_ar_IM(FutureFactor):
+    data_type = 'IndexStock' 
+    instrument_type = 'recent'
+    days_past = 1
+    data_dict = dict()
+    data_dict['Stock'] = ['close','amount','adjfactor']
+    normalize_size = 5*242
+    normalize_type = 'ts_rank' # normalize方法'rolling_norm'或者'ts_rank'
+    num_range = None
+    handle_preadj = True
+    
+    def calculate(self, df):
+        close = df['close_preadj'][-195:].values
+        gain_close_30 = close[30:]/close[:-30] - 1
+        factor = 2 * gain_close_30[20:] - gain_close_30[:-20]
+        factor = bk.move_mean(factor, 110, 55, axis = 0)[-35:]
+
+        a = df['amount'][-35:]
+        ar = (2 * a.rank(axis=1, pct=True) - 1).values
+        factor = factor * ar
+        factor = np.nansum(factor, axis=1)
+
+        factor = bk.move_rank(factor, 20, 10, axis = 0)[-15:]
+        factor = np.nanmean(factor)
+
+        return factor

@@ -1,0 +1,36 @@
+from future_factor import FutureFactor
+import numpy as np
+
+
+class MinuteIndexEMV_IM(FutureFactor):
+    '''
+    Description: cs_mean(ts_mean(diff((high_adj + low_adj) / 2, 1) * (high_adj - low_adj) * volume_adj, 20)),
+                 high_adj = high * adjfactor, low_adj = low * adjfactor, volume_adj = volume / adjfactor.
+    Class: MTM
+    Author: jinpx, modified by hefj
+    '''
+    data_type = 'IndexStock'
+    days_past = 1
+    data_dict = {}
+    data_dict['Stock'] = ['high', 'low', 'volume', 'adjfactor']
+    normalize_size = 1 * 237
+    normalize_type = 'ts_rank'
+    
+    def calculate(self, data):
+        high = data['high'].values[-21:]
+        high[high == 0] = np.nan
+        low = data['low'].values[-21:]
+        low[low == 0] = np.nan
+        volume = data['volume'].values[-20:]
+        volume[volume == 0] = np.nan
+        adj = data['adjfactor'].values[-21:]
+        adj[adj == 0] = np.nan
+        high = high * adj
+        low = low * adj
+        volume = volume / adj[-20:]
+        mid = (high + low) / 2
+        mid_g = np.diff(mid, axis=0)
+        hml = high[-20:] - low[-20:]
+        emv = mid_g * hml * volume
+        f = np.nanmean(np.nanmean(emv, axis=0))
+        return f

@@ -1,0 +1,36 @@
+from future_factor import FutureFactor
+import numpy as np
+import bottleneck as bk
+import pandas as pd
+
+def get_norm(fa):
+    fmax = np.nanmax(fa)
+    fmin = np.nanmin(fa)
+    divisor = fmax - fmin
+    if divisor < 1e-8:
+        divisior = np.nan
+    return ((fa[-1] - fmin)/ divisor) * 2 - 1
+
+
+class wyc_ts44_future_IH(FutureFactor):
+    data_type = 'Future' 
+    instrument_type = 'recent'
+    days_past = 6
+    data_dict = dict()
+    data_dict['Continuous_Data'] = {'IH':['close', 'volume']}
+    normalize_size = 0
+    normalize_type = 'rolling_norm' # normalize方法'rolling_norm'或者'ts_rank'
+#    num_range = '[0,1]'
+    handle_preadj = None 
+
+    def calculate(self, df):
+        volume = df['volume_cont_IH'][-1250:]
+        close = df['close_cont_IH'][-1250:]
+        temp1 = volume.copy(deep = True)
+        con2 = close < close.shift(1)
+        temp1[con2] = -1 * volume
+        factor = bk.move_sum(temp1, 20, 10, axis = 0)[-1230:]
+        factor = bk.move_mean(factor, 20, 10, axis = 0)[-1210:]
+        factor = get_norm(factor)
+        
+        return factor

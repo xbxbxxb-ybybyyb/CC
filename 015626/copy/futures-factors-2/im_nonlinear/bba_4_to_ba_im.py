@@ -1,0 +1,24 @@
+import numpy as np
+from future_factor import FutureFactor
+from help_functions_wsc import replace_zero
+from operators_wsc_for_srch import *
+
+
+    
+class bba_4_to_ba_im(FutureFactor):
+
+    data_type = 'IndexStock' 
+    days_past = 1
+    data_dict = dict()
+    data_dict['Stock'] = ['buy_smallorder_money', 'BuyTradeMoney']
+    normalize_size = 1
+    normalize_type = 'ts_rank' 
+    num_range = None
+    handle_preadj = False
+    
+    def calculate(self, data):
+        buy_smallorder_money = data['buy_smallorder_money'].values[-1]
+        BuyTradeMoney = data['BuyTradeMoney'].values[-1]
+
+        factor = np.nansum(buy_smallorder_money) / np.nansum(BuyTradeMoney)
+        return factor

@@ -1,0 +1,191 @@
+from xquant.factordata import FactorData
+from multifactor.IO import IO
+from multiprocessing import Pool
+
+import pandas as pd
+import numpy as np
+# from get_data import *
+import multifactor.utility.dt as udt
+
+class DataCenter(object):
+
+    def __init__(self, variety, data_type, data_dict, start_date, end_date):
+        self.__data_type = data_type
+        self.__start_date = start_date
+        self.__end_date = end_date
+        self.__data_dict = data_dict
+
+        self.__variety = variety
+
+        self.__stock_data = {}
+        self.__future_data_dict = {}
+        self.__index_data_dict = {}
+
+        self.__future_data = None
+        self.__index_data = None
+        self.__other_instrument_data = None
+        self.__other_variety_data = None
+
+        self.__minute_future_path = '/data/group/800002/FutureTrader/test/data_linglei/MD/CHINA_FUTURES/MINUTE'
+        self.__minute_index_path = '/data/group/800002/FutureTrader/test/data_linglei/MD/CHINA_INDEX/MINUTE'
+        self.__minute_stock_path = '/data/group/800002/FutureTrader/test/data_linglei/MD/CHINA_STOCK/MINUTE'
+        self.__index_weights_path = '/data/group/800002/FutureTrader/test/data_zeshi/stock_weights.pickle'
+
+        self._FUTURES = ['IC','IF','IH']
+        self._INDEXES = ['000016.SH','000300.SH','000905.SH']
+        self._INDEX_DICT = {'IC':'ZZ500','IF':'HS300'}
+
+        self.stock_time_index = self.get_standard_minute_time()
+
+        self.load_data()
+
+    def get_variety(self):
+        return self.__variety
+    def get_data_type(self):
+        return self.__data_type
+    def get_stock_data(self):
+        return self.__stock_data
+    def get_future_data(self):
+        return self.__future_data
+    def get_index_data(self):
+        return self.__index_data
+    def get_other_instrument_data(self):
+        return self.__other_instrument_data
+    def get_other_variety_data(self):
+        return self.__other_variety_data
+    def get_index_code(self):
+        return self._INDEX_DICT.get(self.__variety)
+    def get_future_data_dict(self):
+        return self.__future_data_dict
+    def get_index_data_dict(self):
+        return self.__index_data_dict
+
+
+    def get_standard_minute_time(self):
+        # date_list = get_trading_days(self.__start_date, self.__end_date)
+        date_list = [str(x)[:10] for x in udt.get_trading_date_range(self.__start_date, self.__end_date)]
+        time_range = None
+        for date in date_list:
+            if time_range is None:
+                time_range = pd.date_range(start='{} 09:30:00'.format(date), end='{} 11:29:00'.format(date), freq='1T') \
+                    .append(pd.date_range(start='{} 13:00:00'.format(date), end='{} 14:56:00'.format(date), freq='1T'))
+            else:
+                time_range = time_range.append(
+                    pd.date_range(start='{} 09:30:00'.format(date), end='{} 11:29:00'.format(date), freq='1T') \
+                    .append(pd.date_range(start='{} 13:00:00'.format(date), end='{} 14:56:00'.format(date), freq='1T')))
+
+        return time_range
+
+    def load_future_data(self, variety):
+        print('Loading {} data...'.format(variety))
+        self.__future_data_dict[variety] = IO.read_data([self.__start_date,self.__end_date+'235959'],alt='{}/{}_MINUTE.h5'.format(self.__minute_future_path,variety))
+
+    def load_index_data(self, index_code):
+        print('Loading {} data...'.format(index_code))
+        self.__index_data_dict[index_code] = IO.read_data([self.__start_date,self.__end_date+'235959'],alt='{}/{}.h5'.format(self.__minute_index_path,index_code)).reset_index().set_index('dt')
+
+    def get_stock_fields(self, symbol, fields):
+
+        try:
+            df_stock = IO.read_data([self.__start_date, self.__end_date+'235959'],
+                                    alt='{}/{}.h5'.format(self.__minute_stock_path, symbol)).reset_index().set_index('dt').reindex(self.stock_time_index)
+        except:
+            df_stock = pd.DataFrame(columns=fields).reindex(self.stock_time_index)
+
+        data_dict = {}
+
+        for i in fields:
+            data_dict[i] = df_stock[i].values
+
+        return data_dict
+
+    def load_stock_data(self):
+        df_weight = pd.read_pickle(self.__index_weights_path)
+        stock_list = list(df_weight.swaplevel().loc[self._INDEX_DICT.get(self.__variety)]['stock'].unique())
+        print('Loading index stock data for {}...'.format(self.__variety))
+
+        tasks = []
+
+        assert self.__data_dict.get('Stock') is not None
+        fields = self.__data_dict.get('Stock')
+
+        for i in fields:
+            exec('data_{} = []'.format(i))
+
+        with Pool(20) as pool:
+            for symbol in stock_list:
+                tasks.append([symbol, pool.apply_async(self.get_stock_fields, args=(symbol, fields))])
+
+            for s, t in tasks:
+                temp_result = t.get()
+                for i in fields:
+                    exec("data_{}.append(temp_result['{}'])".format(i, i))
+
+        for i in fields:
+            exec("self.get_stock_data()['{}'] = pd.DataFrame(np.transpose(data_{}),index=self.stock_time_index,columns=stock_list)".format(i, i))
+
+
+    def load_data(self):
+        # load index data
+        if self.__data_dict.get('Index_Id') is not None:
+            index_data_list = []
+            for i,v in self.__data_dict.get('Index_Id').items():
+                self.load_index_data(i)
+                df_temp = self.__index_data_dict[i][v]
+                df_temp.columns = ['{}_{}'.format(c,i) for c in v]
+                index_data_list.append(df_temp)
+
+            self.__index_data = pd.concat(index_data_list,axis=1)
+
+        # load future data
+        if self.__data_dict.get('Future_Data') is not None:
+            self.load_future_data(self.__variety)
+            data_fields = self.__data_dict.get('Future_Data')
+            self.__future_data = self.__future_data_dict[self.__variety].groupby(level=0).head(1).groupby(level=0).last()[data_fields]
+
+        # load other instrument
+        if self.__data_dict.get('Other_Future_Insturment') is not None:
+
+            if self.__data_dict.get('Future_Data') is None:
+                self.load_future_data(self.__variety)
+
+            df_temp = self.__future_data_dict[self.__variety]
+            temp_dict = self.__data_dict.get('Other_Future_Insturment')
+            other_instrument_list = []
+            for k,v in temp_dict.items():
+                if k == '00':
+                    df_temp_instrument = df_temp.groupby(level=0).head(1).groupby(level=0).last()[v]
+                    df_temp_instrument.columns = ['{}_{}'.format(i,k) for i in v]
+                elif k == '01':
+                    df_temp_instrument = df_temp.groupby(level=0).head(2).groupby(level=0).last()[v]
+                    df_temp_instrument.columns = ['{}_{}'.format(i,k) for i in v]
+                elif k == '02':
+                    df_temp_instrument = df_temp.groupby(level=0).head(3).groupby(level=0).last()[v]
+                    df_temp_instrument.columns = ['{}_{}'.format(i,k) for i in v]
+                elif k == '03':
+                    df_temp_instrument = df_temp.groupby(level=0).head(4).groupby(level=0).last()[v]
+                    df_temp_instrument.columns = ['{}_{}'.format(i,k) for i in v]
+
+                other_instrument_list.append(df_temp_instrument)
+
+            self.__other_instrument_data = pd.concat(other_instrument_list,axis=1)
+
+        # load other variety
+        if self.__data_dict.get('Other_Variety') is not None:
+            other_variety_dict = self.__data_dict.get('Other_Variety')
+            other_variety_data_list = []
+            for k,v in other_variety_dict.items():
+                self.load_future_data(k)
+                df_temp_variety = self.__future_data_dict[k][v].groupby(level=0).head(1).groupby(level=0).last()[v]
+                df_temp_variety.columns = ['{}_{}'.format(i,k) for i in v]
+                other_variety_data_list.append(df_temp_variety)
+
+            self.__other_variety_data = pd.concat(other_variety_data_list,axis=1)
+
+        # load stock data
+        if self.__data_type == 'IndexStock' and self.__data_dict.get('Stock') is not None:
+            self.load_stock_data()
+
+
+
+

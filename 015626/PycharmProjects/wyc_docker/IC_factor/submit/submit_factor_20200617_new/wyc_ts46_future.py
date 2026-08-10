@@ -1,0 +1,33 @@
+from factor_generator import FactorGenerator
+from operators_wyc import *
+import pandas as pd
+import numpy as np
+class wyc_ts46_future(FactorGenerator):
+    def __init__(self):
+
+        required_columns=['high','close','low']
+        lookback_bars=2000
+        super(wyc_ts46_future, self).__init__(
+                                  required_columns=required_columns,
+                                  lookback_bars=lookback_bars)
+
+    def on_bar(self, df):
+
+        
+        factor = -1 * ts_sum(MAX(df.high-delay((df.high + df.low + df.close)/3,1),0),20)/ts_sum(MAX(delay((df.high + df.low + df.close)/3,1) - df.low,0),20)*20
+        factor = ts_rank(factor, 20)
+        factor = mean(factor, 100)
+
+        def rolling_normalize(df, x):
+            def normalize(dd):
+                a = (dd[-1] - dd.min()) / (dd.max() - dd.min())
+                b = (a - 0.5) * 2
+                return b
+
+            return df.rolling(x, min_periods=int(x / 2)).apply(normalize)
+
+        columnname = self.__class__.__name__
+        factor.columns = [columnname]
+        factor = factor.fillna(method='ffill')
+        factor[columnname] = rolling_normalize(factor, 5 * 242)
+        return factor

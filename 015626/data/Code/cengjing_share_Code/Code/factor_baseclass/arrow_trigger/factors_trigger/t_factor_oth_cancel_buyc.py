@@ -1,0 +1,37 @@
+from arrow.factor_generator import FactorGenerator
+from arrow.naming_config import *
+from arrow.utility import *
+import datetime
+import numpy as np
+import bottleneck as bk
+import pandas as pd
+
+
+class t_factor_oth_cancel_buyc(FactorGenerator):
+    def __init__(self, *args, **kwargs):
+        data_mode = 't'
+        required_columns = ['transaction', 'order', 'order_raw']
+        super(t_factor_oth_cancel_buyc, self).__init__(*args, data_mode = data_mode, required_columns=required_columns, **kwargs)
+
+    def on_bar(self, df):
+        factor = {}
+        for stk in df['universe']:
+            data_t_1 = df['transaction'][stk]
+            order = df['order'][stk]
+            order['OrderMoney'] = order.OrderPrice * order.OrderQty 
+            order_raw = df['order_raw'][stk]
+            order_raw['OrderMoney'] = order_raw.OrderPrice * order_raw.OrderQty 
+
+            max_end_time = data_t_1[data_t_1.TradePrice == data_t_1.TradePrice.max()].iloc[0]['dt']
+            
+            if stk.endswith('SH'):
+                order_raw = order_raw[order_raw['dt'] < max_end_time]
+                factor[stk] = len(order_raw[(order_raw.OrderType == 10) & (order_raw.OrderBSFlag == 1)])
+            else:
+                data_t_1['indexJoin'] = data_t_1.TradeBuyNo + data_t_1.TradeSellNo
+                data_t_1 = data_t_1.set_index('indexJoin').join(order.rename(columns = {'OrderIndex':'indexJoin'}).set_index('indexJoin')[['OrderPrice']])
+                data_t_1 = data_t_1[(data_t_1['dt'] < max_end_time) & (data_t_1.TradeType == 1)]
+                factor[stk] = len(data_t_1[data_t_1.TradeBSFlag == 1])
+            
+        factor = pd.DataFrame(factor, index = [self.__class__.__name__]).T        
+        return factor

@@ -1,0 +1,34 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Sep 18 13:34:01 2020
+
+@author: appadmin
+"""
+import pandas as pd
+import numpy as np
+import bottleneck as bk
+from factor_generator_complex import FactorGeneratorComplex
+from operators_cc import *
+
+
+class HcorrC_CFG_CC(FactorGeneratorComplex):
+    def __init__(self):
+        required_columns=['weight_zz500', 'close_zz500', 'high_zz500', 'weight_boolean_zz500']
+
+        super(HcorrC_CFG_CC, self).__init__(required_columns=required_columns)
+
+    def on_bar(self, data):
+        high = data['high_zz500']
+        close = data['close_zz500']
+        s = high.rolling(60, min_periods=30).std()
+        f = close.rolling(60, min_periods=30).std()
+        s[abs(s) < 1e-7] = np.nan
+        f[abs(f) < 1e-7] = np.nan
+        t_pcor2 = high.rolling(60, min_periods=30).cov(close) / (s * f)
+
+        t_pcor2[~np.isfinite(t_pcor2)] = 0
+        factor = (t_pcor2[data['weight_boolean_zz500']]*data['weight_zz500']).mean(axis = 1).to_frame()
+        #factor.index = data.index
+        factor.columns = [self.__class__.__name__]
+        factor = ts_rank(factor)
+        return factor
