@@ -1,0 +1,51 @@
+/*
+ * Decompiled with CFR 0.151.
+ * 
+ * Could not load the following classes:
+ *  com.huatai.common.marketdata.Trade
+ */
+package com.huatai.strategy.strong.factor2;
+
+import com.huatai.common.marketdata.Trade;
+import com.huatai.strategy.strong.common.marketdata.Tick;
+import com.huatai.strategy.strong.factor2.BaseFactor;
+import com.huatai.strategy.strong.saturn.SaturnMarketDataManager;
+import java.util.List;
+import java.util.Map;
+
+public class Saturn_t931_wd_k1_o2p_ask_pct
+extends BaseFactor {
+    public Saturn_t931_wd_k1_o2p_ask_pct(SaturnMarketDataManager marketDataManager, Map<String, Double> factorValueMap) {
+        super(marketDataManager, factorValueMap);
+        this.factorName = new String[]{"saturn_t931_wd_k1_o2p_ask_pct"};
+    }
+
+    @Override
+    public void update(Trade trade) {
+    }
+
+    @Override
+    public void calculate() {
+        double factorValue = 0.0;
+        List<Tick> tickList = this.marketDataManager.getCurrentTickList();
+        if (tickList != null) {
+            double firstPrice = 0.0;
+            double lastPrice = 0.0;
+            for (Tick t : tickList) {
+                if (!(t.getLastPx() > 0.0) || !(t.getWeightedAvgOfferPx() > 0.0)) continue;
+                if (firstPrice == 0.0) {
+                    firstPrice = t.getWeightedAvgOfferPx();
+                }
+                lastPrice = t.getWeightedAvgOfferPx();
+            }
+            if (firstPrice != 0.0) {
+                factorValue = (lastPrice - firstPrice) / this.marketDataManager.getPreClose();
+            }
+            if (this.marketDataManager.isStartsWith3()) {
+                factorValue /= 2.0;
+            }
+        }
+        this.updateValue(0, Double.isNaN(factorValue) || Double.isInfinite(factorValue) ? 0.0 : factorValue);
+    }
+}
+
