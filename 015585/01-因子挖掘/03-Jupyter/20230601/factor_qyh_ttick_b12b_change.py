@@ -1,0 +1,29 @@
+# -*- coding: utf-8 -*-
+# @Time    : 2023/02/23 14:06
+# @Author  : qinyuhao
+
+import numpy as np
+import pandas as pd
+#
+# 逻辑：买1-买均在全区间的首末变化值
+# 快速:49,0.07
+# 全样本：52,0.07
+# qyh_ttick_b12bmax_a2b
+factor_name = 'qyh_ttick_b12b_change'#
+def factor_qyh_ttick_b12b_change(tick_df, return_fillna_dic=False):
+    if return_fillna_dic:
+        # 返回因子为nan时的填充值
+        return {factor_name: -0.03}
+    tick_df = tick_df[tick_df['MDTime'] >= 93000000]
+    factor = (tick_df['Buy1Price'] - tick_df['WeightedAvgBidPx']) / (tick_df['pre_close'].max())
+    change = factor.head(1).mean() - factor.tail(1).mean() if len(factor) > 0 else np.nan
+    factor_dict = {factor_name: change}
+    # ---------------------------------------------------------------------------------------------------------------
+    return pd.Series(factor_dict)
+
+    # 格式上需要注意的部分：
+    # 1.因子文件代码名称为'factor_因子名称.py';
+    # 2.函数名称为'factor_因子名称()';
+    # 3.在return_fillna_dic中返回的dict的key为因子名称;
+    # 4.在返回的factor_dic中key也为因子名称;
+    # 5以上的四个因子名称应该统一。

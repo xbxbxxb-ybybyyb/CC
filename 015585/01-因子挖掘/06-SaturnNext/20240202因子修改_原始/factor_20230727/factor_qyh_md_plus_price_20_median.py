@@ -1,0 +1,35 @@
+# -*- coding: utf-8 -*-
+# @Time    : 2023/02/01 10:15
+# @Author  : qinyuhao
+
+import pandas as pd
+import numpy as np
+import os
+from xquant.factordata import FactorData
+s = FactorData()
+def factor_qyh_md_plus_price_20_median(start_date, end_date, IO, return_fillna_dic=False):
+    factor_name='qyh_md_plus_price_20_median'
+
+    if return_fillna_dic:
+        # 返回因子为nan时的填充值，Todo: T-1_factor类因子需要包括数据源缩写（其列表在因子规范数据源检测一节）
+        return {factor_name: 0.0013, 'data':['MD']}
+    # 可修改的因子编写部分
+    # 该部分与alpha因子计算方式一致，计算全部股票在全部时间区间上的因子值，之后会在run_factor_demo函数中进行向后平移一天和样本的筛选
+    # 返回dt, Ticker格式multiindex的DataFrame, 一列，列名为因子名称
+    # -------------------------------------------------------------------------------------------------------------------
+    start_date = int(s.tradingday(str(start_date), -30)[0])
+    f_data = IO.read_data([start_date, end_date],
+                          columns=['close','high','low']
+                          , alt='/data/group/800080/warehouse/prod/MD/CHINA_STOCK/DAILY/WIND/MD_CHINA_STOCK_DAILY_WIND.h5')
+    f_data['zcz'] = (((f_data.reset_index()['Ticker'].apply(lambda x: x[0:2] == '30')) & (
+                f_data.reset_index()['dt'] >= '2020-08-24'))
+                 | (f_data.reset_index()['Ticker'].apply(lambda x: x[0:2] == '68'))).values
+    f_data[factor_name] = 2 * f_data['close'] - f_data['high'] - f_data['low']
+    f_data[factor_name] = f_data[factor_name].unstack().fillna(method='ffill',limit=10).stack()
+    f_data['close_-1'] = f_data['close'].unstack().fillna(method='ffill',limit=10).shift(1).stack()
+    f_data[factor_name] = f_data[factor_name] / f_data['close_-1']
+    f_data.loc[f_data['zcz'] == 1,factor_name] = f_data.loc[f_data['zcz'] == 1,factor_name]/2
+    f_data = pd.DataFrame(f_data[factor_name])
+    f_data = f_data.unstack().rolling(20,1).median().stack()
+    # -------------------------------------------------------------------------------------------------------------------
+    return f_data

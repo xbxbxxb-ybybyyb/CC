@@ -1,0 +1,12 @@
+import pandas as pd
+df1 = pd.read_csv('/data/user/000021/gjx/alphagen-change-reward存档8.7反正还没改feature，这个能跑但结果不太理想/result/alpha_result2018.csv')
+df2 = pd.read_csv('/data/user/000021/gjx/alphagen-change-reward存档8.7反正还没改feature，这个能跑但结果不太理想/result/alpha_result2019.csv')
+df = pd.concat((df1,df2),axis = 0)
+df = df.sort_values(by=['RankIC'])
+df.to_csv('./jiqi.csv')
+dff1 = pd.read_csv('/data/user/000021/gjx/alphagen-change-reward存档8.7反正还没改feature，这个能跑但结果不太理想/人工日频2019.csv')
+dff2 = pd.read_csv('/data/user/000021/gjx/alphagen-change-reward存档8.7反正还没改feature，这个能跑但结果不太理想/人工日频2019.csv')
+dff = pd.concat((dff1,dff2),axis = 0)
+df = df.sort_values(by=['RankIC'])
+dff.to_csv('./rengong.csv')
+print(df.sort_values(by=['RankIC']))

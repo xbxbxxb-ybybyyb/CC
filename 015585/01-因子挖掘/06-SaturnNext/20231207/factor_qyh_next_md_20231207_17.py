@@ -1,0 +1,37 @@
+import pandas as pd
+import numpy as np
+import os
+from xquant.factordata import FactorData
+s = FactorData()
+# dtj
+# amt的10日变异系数rank
+# 23,0.05
+# 和本次其他高相关
+factor_name = 'qyh_next_md_20231207_17'
+def factor_qyh_next_md_20231207_17(start_date, end_date, IO, return_fillna_dic=False):
+    if return_fillna_dic:
+        # 返回因子为nan时的填充值
+        return {factor_name:0,'data':['MD']}
+    # -------------------------------------------------------------------------------------------------------------------
+    def f_calc_sum(factor_series):
+        return factor_series[~np.isnan(factor_series)].sum()
+    def f_calc_cct(factor_series):
+        if abs(f_calc_sum(factor_series)) > 0:
+            return f_calc_sum(factor_series ** 2) / (f_calc_sum(factor_series) ** 2)
+        else:
+            return np.nan
+    def rank_(data_):
+        data_r = (data_.unstack().rank(axis=1) / (~ data_.unstack().isnull()).values.sum(axis=1).reshape(-1, 1)).stack()
+        return data_r
+    start_date = int(s.tradingday(str(start_date), -150)[0])
+    df_ori = IO.read_data([start_date, end_date],
+                          columns=['high','low','pct_chg','close','amt','vwap'],
+                          alt='/data/group/800080/warehouse/prod/MD/CHINA_STOCK/DAILY/WIND/MD_CHINA_STOCK_DAILY_WIND.h5')
+    # df_ori['factor'] = df_ori['pct_chg'] * df_ori['amt']
+    df_ori['factor1'] = df_ori['amt'].unstack().rolling(10,1).mean().stack()
+    df_ori['factor2'] = df_ori['amt'].unstack().rolling(10,1).std().stack()
+    df_ori[factor_name] = df_ori['factor1'] / (df_ori['factor2']+1)
+    df_ori[factor_name] = rank_(df_ori[factor_name])
+    # df_ori[factor_name] = df_ori[factor_name] - df_ori[factor_name].unstack().median(axis=1)
+    # -------------------------------------------------------------------------------------------------------------------
+    return df_ori[[factor_name]]
