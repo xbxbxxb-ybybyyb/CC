@@ -1,0 +1,88 @@
+# coding: utf-8
+# Author：fengchi863
+
+from hyperopt import hp
+
+def gen_arith_sequ(start, end, interval):
+    gen_list = list()
+    val = start
+    while val <= end:
+        gen_list.append(val)
+        val += interval
+    return gen_list
+
+hyper_xgb_reg_params = {
+    'booster': 'gbtree',
+    'gamma': 0,
+    'learning_rate': 0.005,
+    'max_depth': hp.quniform('max_depth', 3, 9, 1),
+    'min_child_weight': hp.quniform('min_child_weight', 1, 6, 1),
+    'n_estimators': hp.quniform('n_estimators', 800, 1500, 100),
+    'n_jobs': -1,
+    'random_state': 2022,
+    'reg_alpha': hp.quniform('reg_alpha', 0, 1, 0.1),
+    'reg_lambda': hp.quniform('reg_lambda', 0, 1, 0.1),
+    'scale_pos_weight': 1.0,
+    'silent': True,
+    'subsample': hp.quniform('subsample', 0.5, 1, 0.1),
+    'colsample_bytree': hp.quniform('colsample_bytree', 0.5, 1, 0.1),
+    'tree_method': 'gpu_hist',
+
+    # 非模型参数
+    'factor_num': hp.quniform('factor_num', 2020, 2030, 10),
+    'score_threshold': 0,
+}
+
+hyper_lgb_reg_params = {
+    'boosting_type': 'gbdt',
+    'class_weight': None,
+    'colsample_bytree': hp.quniform('colsample_bytree', 0.5, 1, 0.1),    # 构建弱学习器时，对特征随机采样的比例，默认值为1
+    'learning_rate': 0.005,
+    'max_depth': hp.quniform('max_depth', 3, 9, 1),
+    'min_child_samples': hp.quniform('min_child_samples', 1, 20, 2),
+    'min_child_weight': 0.001,  # 指定子节点中最小的样本权重和，如果一个叶子节点的样本权重和小于min_child_weight则拆分过程结束，默认值为1。推荐的候选值为：[1, 3, 5, 7]
+    'min_split_gain': 0.0,  # 指定叶节点进行分支所需的损失减少的最小值，默认值为0。设置的值越大，模型就越保守。
+    'n_estimators': hp.quniform('n_estimators', 800, 1500, 100),
+    'n_jobs': -1,
+    'num_leaves': hp.quniform('num_leaves', 2, 40, 4),
+    'random_state': 2022,
+    'reg_alpha': hp.quniform('reg_alpha', 0, 1, 0.1),
+    'reg_lambda': hp.quniform('reg_lambda', 0, 1, 0.1),
+    'silent': True,
+    'subsample': hp.quniform('subsample', 0.5, 1, 0.1),
+    'subsample_freq': 0, # 数值型，默认值0，表示禁用样本采样
+    'device': 'gpu',
+    'gpu_platform_id': 1,
+    'gpu_device_id': 0,
+    'gpu_use_dp': True,
+
+    'factor_num': hp.quniform('factor_num', 2020, 2030, 10),
+    'score_threshold': 0,
+}
+
+hyper_cat_reg_params = {
+    'loss_function': hp.choice('loss_function', ['RMSE', 'MAE', 'Quantile']),
+    'iterations': hp.quniform('iterations', 800, 1500, 100),
+    'learning_rate': 0.005,
+    'random_seed': 2025,
+    'l2_leaf_reg': hp.quniform('l2_leaf_reg', 0, 1, 0.1),
+    'bootstrap_type': 'Bernoulli',
+    'subsample': hp.quniform('subsample', 0.5, 1, 0.1),
+    'depth': hp.quniform('depth', 3, 9, 1),
+    'leaf_estimation_method': 'Gradient',
+    'nan_mode': 'Forbidden',
+    'boosting_type': hp.choice('boosting_type', ['Ordered', 'Plain']),  # 排序提升，经典提升
+    'logging_level': 'Silent',
+    'feature_border_type': hp.choice('feature_border_type', ['GreedyLogSum', 'MinEntropy']),
+    'task_type': 'GPU',
+    'devices': '0:1'
+}
+
+hyper_lr_reg_params = {
+    'score_threshold': 0,
+    'normalize': hp.choice('normalize', [True, False]),
+    'fit_intercept': hp.choice('fit_intercept', [True, False]),
+    'n_jobs': 10,
+
+    'factor_num': hp.quniform('factor_num', 2020, 2030, 10),
+}

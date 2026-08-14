@@ -1,0 +1,62 @@
+
+from basic.crossFactor import crossFactor
+from basic.crossUtils import *
+from basic.crossConfig import *
+from basic.crossOperators import *
+
+
+
+class xq_min_continuous_limitup_prem(crossFactor):
+    def st_factor(self):
+        '''
+        :return: 1. np.array ,返回个股计算组值需要的个股因子
+                2.  list(np.array)， 返回多个个股因子，有些为了计算组值，有些为了计算
+        '''
+        limitup = get_daily_1factor('limit_up',self.cal_date_range)
+        close = get_daily_1factor('close', self.cal_date_range)
+        high = get_daily_1factor('high', self.cal_date_range)
+        low = get_daily_1factor('low', self.cal_date_range)
+        ipo_date = get_daily_1factor('live_days', self.cal_date_range)
+        ipo_one_board = ipo_date.copy()
+        ipo_one_board[ipo_one_board == 1] = 0
+        ipo_one_board.replace(0, np.nan, inplace=True)
+        ipo_one_board[ipo_one_board>0] =1
+        ipo_one_board = ((ipo_one_board*limitup).cumprod() == 1)& (high == low) | (ipo_date == 1)
+        stk_pool = clean_stock_list(no_ST=True, least_live_days=1, no_pause=True, least_recover_days=0).loc[self.start:self.end]
+        zt = ((ipo_one_board == 0) & limitup & stk_pool).shift(1)
+        lb = (zt.rolling(2).sum() == 2)
+        lb = df_match_index_col(lb, self.code_list, self.cal_date_range)
+        close_min = get_minute_1factor('close', self.cal_date_range[0], self.cal_date_range[-1])
+        pre_close = get_daily_1factor('pre_close', self.cal_date_range)
+        pre_close = pd.DataFrame(pre_close.loc[close_min.index.get_level_values('date')].values,
+                                 index=close_min.index, columns=pre_close.columns)
+        pct_min = close_min / pre_close - 1
+        pct_min = df_match_index_col(pct_min, self.code_list, self.cal_date_range, '1min')
+        return lb, pct_min
+
+    def cal_groupst(self):
+        '''
+        :return: np.array,index: datetime, columns: stockpool，个股值==》组值==》个股值 ，没有行业值在和个股值进行某些计算
+        '''
+        lb, pct_min = self.st_factor()
+        lb = np.repeat(lb, pct_min.shape[1], axis=1)
+        lb_prem = np.where(lb == 1, pct_min, np.nan)
+        self.group = sameshape(lb, self.group_factor())
+        factor = st2groupst(lb_prem, self.group, self.group_func())
+        return arr_match_index(factor, self.cal_date_range, self.date_range)
+
+    def result(self):
+        '''
+        :return: np.array,
+                 如果只是个股计算组值进行平铺，则return cal_groupst()
+                 如果是计算了分组然后又跟个股进行了计算，则 return cal_customst()
+        '''
+        return self.cal_groupst()
+
+
+if __name__ == '__main__':
+    group, func = 'ones', 'cross_mean'
+    print('-------------{}-----------{}-------------'.format(group, func))
+    f = xq_min_continuous_limitup_prem(group, func, 40, 20170101, 20210531, 'xq', 'xq_min_continuous_limitup_prem', '分钟连板股溢价',
+                         article=None, freq='1min')
+    f.save_result()

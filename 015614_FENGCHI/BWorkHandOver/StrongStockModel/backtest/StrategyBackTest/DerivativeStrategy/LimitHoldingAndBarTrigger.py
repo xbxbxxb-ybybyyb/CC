@@ -1,0 +1,64 @@
+# @Time : 2020/12/2 21:05
+# @Author : Zhichen Lu
+# @File : LimitHoldingAndBarTrigger.py
+
+from backtest.StrategyBackTest.PortfolioStrategyBase import PortfolioStrategyBase, EvaluationHelper
+
+class LimitHoldingAndBarTrigger(PortfolioStrategyBase):
+
+    def __init__(self, signal, start=20140101, end=20181231, stock_pool=None, target_point=None, buy_cost=0.001, sell_cost=0.001, per_amt=500000, append_param={}, max_holding=600,
+                 daily_max_buy=400):
+        super().__init__(start, end, stock_pool, target_point, buy_cost, sell_cost, per_amt, append_param=append_param)
+        self.signal = signal.reindex(self.close.index)
+        self.data_flow['signal'] = None
+        self.last_buy_time = {}
+        self.max_holding_num = max_holding
+        self.daily_max_buy_num = daily_max_buy
+
+    def sell_action(self, stk, vol=None):
+        if stk not in self.last_buy_time:
+            raise Exception('Last buy time is not recorded')
+        date, time_point, date_idx, time_idx = self.last_buy_time[stk]
+        bar_date, bar_time, bar_date_idx, bar_time_idx = self.datetime
+        if (bar_date_idx - date_idx) > 1 or ((bar_date_idx - date_idx) == 1 and bar_time >= time_point):
+            self.sell(stk, vol)
+
+    def buy_action(self, stk, vol=None):
+        deal_vol,_ = self.buy(stk, vol)
+        if deal_vol > 0:
+            self.last_buy_time[stk] = self.datetime
+        return deal_vol
+
+    def daily_update(self, idx, date):
+        super().daily_update(idx, date)
+        self.data_flow['signal'] = self.signal[self.date_idx * self.step:(self.date_idx + 1) * self.step]
+        date_pool = self.stock_pool[self.date_idx:self.date_idx + 1].T[date]
+        date_pool = date_pool[~date_pool]
+        self.data_flow['not_available'] = set(date_pool.index.tolist())
+        if self.data_flow['signal'].index[0][0] != self.date or self.data_flow['signal'].index[-1][0] != self.date:
+            raise Exception('Broadcast date and signal date are not match!')
+
+    def bar_handler(self):
+        date, time_point, date_idx, time_idx = self.datetime
+        signal = self.data_flow['signal'][time_idx:time_idx + 1].T[(date, time_point)]
+        signal = signal.dropna()
+        trigger_stk = set(signal.index)
+        sell_stk = set(self.available.keys()) - trigger_stk - self.data_flow['not_available']
+        trigger_stk = trigger_stk - self.data_flow['not_available']
+        for stk in sell_stk:
+            self.sell_action(stk)
+        holding_num = len(self.holding)
+        if holding_num >= self.max_holding_num:
+            return
+        trigget_num = min(len(trigger_stk), self.daily_max_buy_num)
+        if (holding_num + trigget_num) > self.max_holding_num:
+            trigget_num = self.max_holding_num - holding_num
+
+        bough_num = 0
+        trigger_stk = signal[list(trigger_stk)].sort_values(ascending=False).index.tolist()
+        for stk in trigger_stk:
+            if stk not in self.holding:
+                _ = self.buy_action(stk)
+                bough_num += 1
+            if bough_num >= trigget_num:
+                break

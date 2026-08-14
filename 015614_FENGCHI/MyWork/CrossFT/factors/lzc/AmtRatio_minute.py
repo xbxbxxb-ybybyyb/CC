@@ -1,0 +1,69 @@
+# @Time : 2021/8/16 15:31
+# @Author : Zhichen Lu
+# @File : AmtRatio_minute.py
+
+
+from basic.crossFactor import crossFactor
+from basic.crossUtils import *
+from basic.crossConfig import *
+from basic.crossOperators import *
+
+
+def fill_nan(arr, l):
+    return np.pad(arr, ((l, 0), (0, 0), (0, 0)), mode='constant', constant_values=np.nan)
+
+
+def delay(arr, l=1):
+    return fill_nan(arr[:-l], l)
+
+
+class AmtRatio_minute(crossFactor):
+    window = 15
+    cross_group = 'sw1'
+    cross_func = 'cross_sum'
+    extend_days = 15
+    author = 'lzc'
+    logic = '当日该分钟成交量占昨日该分钟成交量之比'
+    article = ''
+    freq = '5mins'
+    basic_datas = {'daily': [], '30mins': [], '5mins': ['volume'], '1min': []}
+
+    def st_factor(self):
+        '''
+        :return: 1. np.array ,返回个股计算组值需要的个股因子
+                2.  list(np.array)， 返回多个个股因子，有些为了计算组值，有些为了计算
+        '''
+
+        return self.database['5mins']['volume']
+
+    def cal_groupst(self):
+        '''
+        :return: np.array,个股值==》组值==》个股值 ，没有行业值在和个股值进行某些计算
+        '''
+        turn = self.st_factor()
+        self.group = sameshape(turn, self.group_factor())
+        group_turn = st2groupst(turn, self.group,  self.group_func())
+        group_pct = group_turn / delay(group_turn) - 1
+        stk_pct = turn / delay(turn) - 1
+
+        return arr_match_index(stk_pct * group_pct, self.cal_date_range, self.date_range)
+
+    def result(self):
+        '''
+        :return: np.array,
+                 如果只是个股计算组值进行平铺，则return cal_groupst()
+                 如果是计算了分组然后又跟个股进行了计算，则 return cal_customst()
+        '''
+        return self.cal_groupst()
+
+
+if __name__ == '__main__':
+    # for group in groups:
+    #     for func in funcs:
+    #         print('-------------{}-----------{}-------------'.format(group,func))
+    t1 = cal_factor(group_func='cross_sum')
+    t2 = cal_factor(group_func='cross_mean')
+    print(np.nansum(t1[1]-t2[1]))
+    # val1 = cal_factor(numd={})
+    # val2 = cal_factor(numd={'daily': 10})
+    # gap = abs(val1 - val2)

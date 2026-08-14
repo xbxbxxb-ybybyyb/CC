@@ -1,0 +1,61 @@
+# coding: utf-8
+# Author：fengchi863
+# Date ：2023/3/14 12:08
+
+"""
+开盘至今主买成交额占全部成交额比例
+"""
+import datetime as dt
+
+import pandas as pd
+
+
+def fun_get_time(time1, sec_delta):
+    # 计算给定时间戳time1在sec_delta秒后的时间戳
+    tmp_time = dt.datetime.strptime(str(time1)[:-3], '%H%M%S')
+    tmp_time2 = tmp_time + dt.timedelta(seconds=sec_delta)
+    tmp_time2_str = tmp_time2.strftime('%H%M%S') + str(time1)[-3:]
+    if (int(tmp_time2_str) > 113000000) & (time1 <= 113000000):
+        adj_tmp_time2 = tmp_time2 + dt.timedelta(seconds=1.5 * 3600)
+        adj_tmp_time2_str = adj_tmp_time2.strftime('%H%M%S') + str(time1)[-3:]
+        return int(adj_tmp_time2_str)
+    elif (int(tmp_time2_str) < 130000000) & (time1 >= 130000000):
+        adj_tmp_time2 = tmp_time2 - dt.timedelta(seconds=1.5 * 3600)
+        adj_tmp_time2_str = adj_tmp_time2.strftime('%H%M%S') + str(time1)[-3:]
+        return int(adj_tmp_time2_str)
+    elif (int(tmp_time2_str) < 93000000) & (time1 >= 93000000):
+        adj_tmp_time2_str = '92500000'
+        return int(adj_tmp_time2_str)
+    elif time1 < 93000000:
+        adj_tmp_time2 = tmp_time2 + dt.timedelta(seconds=4 * 60)
+        adj_tmp_time2_str = adj_tmp_time2.strftime('%H%M%S') + str(time1)[-3:]
+        return int(adj_tmp_time2_str)
+    else:
+        return int(tmp_time2_str)
+
+#TTransaction(逐笔成交类因子)示例 Todo:注意TTransaction类因子需要控制低耗时
+def factor_fc_buy_amt_pct(transaction_df, return_fillna_dic=False):
+    factor_name = 'fc_buy_amt_pct'
+
+    if return_fillna_dic:
+        return {factor_name: 0}
+    transaction_df = transaction_df[transaction_df['TradePrice'] > 0]  # 去除深圳撤单的逐笔成交数据
+    transaction_df = transaction_df[transaction_df['MDTime'] >= 93000000]  # 选择连续竞价阶段的逐笔成交数据
+    transaction_buy = transaction_df.query('TradeBuyNo > TradeSellNo')   # 筛选买单数据
+
+    # 开盘至今主买成交额占全部成交额比例
+    # ul_time = transaction_df.iloc[-1]['MDTime']
+    # target_time = fun_get_time(int(ul_time), -60)
+    # transaction_df = transaction_df.query(f'MDTime >= {target_time}')
+    factor = transaction_buy['TradeMoney'].sum() / transaction_df['TradeMoney'].sum()
+
+    factor_dict = {factor_name: factor}
+    return pd.Series(factor_dict)
+
+if __name__ == '__main__':
+    import IO
+    start_date, end_date=20160101, 20181231
+    factor_df=factor_fc_buy_amt_pct(start_date,end_date,IO)
+    factor_path = '/data/user/015614/factor/'
+    factor_df.to_hdf(factor_path + 'fc_buy_amt_pct.h5', key='fc_buy_amt_pct', mode='w')
+    print(factor_df.describe())

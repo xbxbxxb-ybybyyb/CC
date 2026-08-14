@@ -1,0 +1,80 @@
+# coding: utf-8
+# Author：fengchi863
+# Date ：2023/5/10 21:13
+
+import pandas as pd
+import numpy as np
+import datetime as dt
+import decimal
+def round_(x, n=0):
+    if np.isnan(x):
+        return np.nan
+    x = x + 1e-8
+    if n > 0:
+        res = float(decimal.Decimal(str(x)).quantize(decimal.Decimal('0.%s1' % ('0' * (n - 1))), rounding=decimal.ROUND_HALF_UP))
+    else:
+        res = int(decimal.Decimal(str(x)).quantize(decimal.Decimal('1'), rounding=decimal.ROUND_HALF_UP))
+    return res
+
+
+def fun_get_time(time1, sec_delta):
+    # 计算给定时间戳time1在sec_delta秒后的时间戳
+    tmp_time = dt.datetime.strptime(str(time1)[:-3], '%H%M%S')
+    tmp_time2 = tmp_time + dt.timedelta(seconds=sec_delta)
+    tmp_time2_str = tmp_time2.strftime('%H%M%S') + str(time1)[-3:]
+    if (int(tmp_time2_str) > 113000000) & (time1 <= 113000000):
+        adj_tmp_time2 = tmp_time2 + dt.timedelta(seconds=1.5 * 3600)
+        adj_tmp_time2_str = adj_tmp_time2.strftime('%H%M%S') + str(time1)[-3:]
+        return int(adj_tmp_time2_str)
+    elif (int(tmp_time2_str) < 130000000) & (time1 >= 130000000):
+        adj_tmp_time2 = tmp_time2 - dt.timedelta(seconds=1.5 * 3600)
+        adj_tmp_time2_str = adj_tmp_time2.strftime('%H%M%S') + str(time1)[-3:]
+        return int(adj_tmp_time2_str)
+    elif (int(tmp_time2_str) < 93000000) & (time1 >= 93000000):
+        adj_tmp_time2_str = '92500000'
+        return int(adj_tmp_time2_str)
+    elif time1 < 93000000:
+        adj_tmp_time2 = tmp_time2 + dt.timedelta(seconds=4 * 60)
+        adj_tmp_time2_str = adj_tmp_time2.strftime('%H%M%S') + str(time1)[-3:]
+        return int(adj_tmp_time2_str)
+    else:
+        return int(tmp_time2_str)
+
+def factor_fc_LastZtLastTick_20240125_1(df, return_fillna_dic=False):
+    import sys
+    factor_name = sys._getframe().f_code.co_name[7:]
+    # ------------------------------------------------------------------------------------------------------
+    if return_fillna_dic:
+        return {factor_name: 0}
+
+    if return_fillna_dic:
+        return {factor_name: 0}
+
+    dt, Ticker = df.index[0]
+    pre_close = df.iloc[-1]['pre_close']
+    ff_shares = df.iloc[-1]['ff_shares']
+    zcz = ((Ticker[0:2] == '30') & (dt.strftime('%Y%m%d') >= '20200824')) | (Ticker[0:2] == '68')
+    # df = df.query('130000000 <= MDTime <= 150000000')
+    df['TotalVolumeTrade'] = df['TotalVolumeTrade'].diff().fillna(0).apply(lambda x: round_(x, 6))
+    df['TotalValueTrade'] = df['TotalValueTrade'].diff().fillna(0).apply(lambda x: round_(x, 6))
+    df['TotalBidQty'] = df['TotalBidQty'].diff().fillna(0).apply(lambda x: round_(x, 6))
+    df['TotalOfferQty'] = df['TotalOfferQty'].diff().fillna(0).apply(lambda x: round_(x, 6))
+
+    seg_threshold = round_(df['TotalBidQty'].quantile(0.9), 6)
+    if len(df) > 0:
+        df['Buy8OrderQty'] = df['Buy8OrderQty'].diff().abs().fillna(0).apply(lambda x: round_(x, 6))
+        part_df1 = df.query(f'TotalBidQty >= {seg_threshold}')
+        part_df2 = df.query(f'TotalBidQty <= {seg_threshold}')
+        if part_df2['Buy8OrderQty'].mean() != 0:
+            res = part_df1['Buy8OrderQty'].mean() / part_df2['Buy8OrderQty'].mean()
+        else:
+            res = 0
+    else:
+        res = 0
+    factor_dict = {factor_name: res}
+    # ---------------------------------------------------------------------------------------------------------------
+    """
+    主卖成交量进行分层，不同区间内买盘委托量的变化值的对比
+    =====>>>> 56.75 -0.101 4.491987801826442 8.754154670640308 Lzt_pj2k_sell2_compact_mean，fm_abnormal_extent_120 0.6577，0.631
+    """
+    return pd.Series(factor_dict)

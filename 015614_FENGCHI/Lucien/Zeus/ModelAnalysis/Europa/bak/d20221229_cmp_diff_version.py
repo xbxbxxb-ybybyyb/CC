@@ -1,0 +1,84 @@
+# coding: utf-8
+# Author：fengchi863
+# Date ：2022/12/29 10:33
+
+"""
+汇总catboost的回测结果
+"""
+
+import pandas as pd
+PERIOD = 'period1'
+SUB_VERSION = 'v1'  # v1 v2 v3
+
+"""开始对比"""
+import pandas as pd
+from tqdm import tqdm
+from dataApi.sendInfo import send_file
+
+#%% 第一块
+root_path = '/data/user/015614/shared/backtest_result/20221229回测结果_Europa_fac_20221116_FSV8_CAT_lowCost/'
+# root_path = '/data/user/015614/junkData/回测结果/'
+period1_test = '20191001~20200331_Europa_fac_20221116_FSV8_all_pct_graded_lowCost_period1_all_merge_test_模型评价_20221229.xlsx'
+period1_fit = '20200401~20201231_Europa_fac_20221116_FSV8_all_pct_graded_lowCost_period1_all_merge_fit_模型评价_20221229.xlsx'
+period2_test = '20200401~20200930_Europa_fac_20221116_FSV8_all_pct_graded_lowCost_period2_all_merge_test_模型评价_20221229.xlsx'
+period2_fit = '20201001~20210630_Europa_fac_20221116_FSV8_all_pct_graded_lowCost_period2_all_merge_fit_模型评价_20221229.xlsx'
+period3_test = '20201001~20210331_Europa_fac_20221116_FSV8_all_pct_graded_lowCost_period3_all_merge_test_模型评价_20221229.xlsx'
+period3_fit = '20210401~20211231_Europa_fac_20221116_FSV8_all_pct_graded_lowCost_period3_all_merge_fit_模型评价_20221229.xlsx'
+bt_res_fpath_list = [period1_test, period1_fit, period2_test, period2_fit, period3_test, period3_fit]
+bt_res_name_list = ['period1_test', 'period1_fit', 'period2_test', 'period2_fit', 'period3_test', 'period3_fit']
+filtered_model_list = ['LgbV8FcModel', 'CatV8FcModel']
+
+res_df = pd.DataFrame(index=pd.MultiIndex.from_product([bt_res_name_list, filtered_model_list]))
+for bt_res_name in tqdm(bt_res_name_list):
+    bt = pd.read_excel(root_path + eval(bt_res_name), index_col=0, sheet_name='模型结果')
+    for filtered_model in filtered_model_list:
+        res_df.loc[(bt_res_name, filtered_model), '基础样本数量'] = bt.loc['基础样本数量', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '组合标签胜率'] = bt.loc['组合标签胜率', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '扣费后收益率胜率'] = bt.loc['扣费后收益率胜率', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '样本参与率'] = bt.loc['样本参与率', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '实际参与次数'] = bt.loc['实际参与次数', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '累计扣费总收益'] = bt.loc['累计扣费总收益', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '最大回撤'] = bt.loc['最大回撤', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '收益风险比'] = bt.loc['收益风险比', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '夏普比率'] = bt.loc['夏普比率', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '收益夏普比率'] = bt.loc['收益夏普比率', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '预测值与标签IC'] = bt.loc['预测值与标签IC', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '预测值与标签RankIC'] = bt.loc['预测值与标签RankIC', filtered_model]
+
+check = pd.concat([res_df.T], axis=1).T
+send_file(check)
+
+# 第四个区间 period4
+root_path = '/data/user/015614/shared/backtest_result/20230105回测结果_Europa_fac_20221116_total_lowCost_5model_period4/'
+# root_path = '/data/user/015614/junkData/回测结果/'
+period4_test = '20210701~20211231_Europa_fac_20221220_FSV8_all_pct_graded_lowCost_period4_all_merge_test_模型评价_20230105.xlsx'
+bt_res_fpath_list = [period4_test]
+bt_res_name_list = ['period4_test']
+filtered_model_list = ['LgbV8FcModel', 'XgbV8FcModel', 'LrRSFcModel', 'LgbV8HmlFcModel', 'XgbV8HmlFcModel']
+
+res_df = pd.DataFrame(index=pd.MultiIndex.from_product([bt_res_name_list, filtered_model_list]))
+for bt_res_name in tqdm(bt_res_name_list):
+    bt = pd.read_excel(root_path + eval(bt_res_name), index_col=0, sheet_name='模型结果')
+    bt_attend = pd.read_excel(root_path + eval(bt_res_name), index_col=0, sheet_name='不同参与率指标统计')
+    bt_idx_list = [1 + idx * len(filtered_model_list) for idx in range(0, 4)]
+    res_df.loc[(bt_res_name, slice(None)), '平均累计盈利'] = bt_attend.iloc[:, 1: 1 + len(filtered_model_list)].mean().values
+    res_df.loc[(bt_res_name, slice(None)), '平均最大回撤'] = bt_attend.iloc[:, 2 + len(filtered_model_list): 2 + 2 * len(filtered_model_list)].mean().values
+    res_df.loc[(bt_res_name, slice(None)), '平均收益风险比'] = bt_attend.iloc[:, 3 + 2 * len(filtered_model_list): 3 + 3 * len(filtered_model_list)].mean().values
+    res_df.loc[(bt_res_name, slice(None)), '平均收益夏普比率'] = bt_attend.iloc[:, 4 + 3 * len(filtered_model_list): 4 + 4 * len(filtered_model_list)].mean().values
+    res_df.loc[(bt_res_name, slice(None)), '平均扣费收益率'] = bt_attend.iloc[:, 5 + 4 * len(filtered_model_list): 5 + 5 * len(filtered_model_list)].mean().values
+    for filtered_model in filtered_model_list:
+        res_df.loc[(bt_res_name, filtered_model), '基础样本数量'] = bt.loc['基础样本数量', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '组合标签胜率'] = bt.loc['组合标签胜率', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '扣费后收益率胜率'] = bt.loc['扣费后收益率胜率', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '样本参与率'] = bt.loc['样本参与率', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '实际参与次数'] = bt.loc['实际参与次数', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '累计扣费总收益'] = bt.loc['累计扣费总收益', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '最大回撤'] = bt.loc['最大回撤', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '收益风险比'] = bt.loc['收益风险比', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '夏普比率'] = bt.loc['夏普比率', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '收益夏普比率'] = bt.loc['收益夏普比率', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '预测值与标签IC'] = bt.loc['预测值与标签IC', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '预测值与标签RankIC'] = bt.loc['预测值与标签RankIC', filtered_model]
+
+check = pd.concat([res_df.T], axis=1).T
+send_file(check)

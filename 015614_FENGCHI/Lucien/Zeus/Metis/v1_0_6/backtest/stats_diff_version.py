@@ -1,0 +1,57 @@
+# coding: utf-8
+# Author：fengchi863
+# Date ：2023/8/18 16:08
+
+import pandas as pd
+from LucienUtil.FileUtil import FileUtil
+from tqdm import tqdm
+
+root_path = '/data/user/015614/Zeus/backtest/Metis/v1_0_6/回测结果/'
+
+bt_date = '20230822'
+# period1_test = f'20191001~20200331_Metis_period1_all_merge_test_模型评价_{bt_date}.xlsx'
+# period1_fit =  f'20200401~20201231_Metis_period1_all_merge_fit_模型评价_{bt_date}.xlsx'
+# period2_test = f'20200401~20200930_Metis_period2_all_merge_test_模型评价_{bt_date}.xlsx'
+# period2_fit =  f'20201001~20210630_Metis_period2_all_merge_fit_模型评价_{bt_date}.xlsx'
+# period3_test = f'20201001~20210331_Metis_period3_all_merge_test_模型评价_{bt_date}.xlsx'
+# period3_fit =  f'20210401~20211231_Metis_period3_all_merge_fit_模型评价_{bt_date}.xlsx'
+# bt_res_fpath_list = [period1_test, period1_fit, period2_test, period2_fit, period3_test, period3_fit]
+# bt_res_name_list = ['period1_test', 'period1_fit', 'period2_test', 'period2_fit', 'period3_test', 'period3_fit']
+# filtered_model_list = ['fsv8_pct_XgbRegModel', 'fsv10_pct_XgbRegModel', 'fsv11_pct_XgbRegModel', 'fsrs_pct_XgbRegModel', 'rffs_pct_XgbRegModel',
+#                        'fsv8_pct_LgbRegModel', 'fsv10_pct_LgbRegModel', 'fsv11_pct_LgbRegModel', 'fsrs_pct_LgbRegModel', 'rffs_pct_LgbRegModel']
+
+period4_test = f'20210401~20210930_Metis_period4_all_merge_test_模型评价_{bt_date}.xlsx'
+bt_res_fpath_list = [period4_test]
+bt_res_name_list = ['period4_test']
+filtered_model_list = ['fsv8_pct_XgbRegModel', 'fsv10_pct_XgbRegModel', 'fsv11_pct_XgbRegModel', 'fsrs_pct_XgbRegModel', 'rffs_pct_XgbRegModel',
+                       'fsv8_pct_LgbRegModel', 'fsv10_pct_LgbRegModel', 'fsv11_pct_LgbRegModel', 'fsrs_pct_LgbRegModel', 'rffs_pct_LgbRegModel']
+
+res_df = pd.DataFrame(index=pd.MultiIndex.from_product([bt_res_name_list, filtered_model_list]))
+for bt_res_name in tqdm(bt_res_name_list):
+    bt = pd.read_excel(root_path + eval(bt_res_name), index_col=0, sheet_name='模型结果')
+    bt_attend = pd.read_excel(root_path + eval(bt_res_name), index_col=0, sheet_name='不同参与率指标统计')
+    res_df.loc[(bt_res_name, slice(None)), '平均累计盈利'] = bt_attend.iloc[:, 1: 1 + len(filtered_model_list)].mean().values
+    res_df.loc[(bt_res_name, slice(None)), '平均最大回撤'] = bt_attend.iloc[:, 2 + len(filtered_model_list): 2 + 2 * len(filtered_model_list)].mean().values
+    res_df.loc[(bt_res_name, slice(None)), '平均收益风险比'] = bt_attend.iloc[:, 3 + 2 * len(filtered_model_list): 3 + 3 * len(filtered_model_list)].mean().values
+    res_df.loc[(bt_res_name, slice(None)), '平均收益夏普比率'] = bt_attend.iloc[:, 4 + 3 * len(filtered_model_list): 4 + 4 * len(filtered_model_list)].mean().values
+    res_df.loc[(bt_res_name, slice(None)), '平均扣费收益率'] = bt_attend.iloc[:, 5 + 4 * len(filtered_model_list): 5 + 5 * len(filtered_model_list)].mean().values
+    for filtered_model in filtered_model_list:
+        res_df.loc[(bt_res_name, filtered_model), '基础样本数量'] = bt.loc['基础样本数量', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '组合标签胜率'] = bt.loc['组合标签胜率', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '扣费后收益率胜率'] = bt.loc['扣费后收益率胜率', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '样本参与率'] = bt.loc['样本参与率', filtered_model]
+        # res_df.loc[(bt_res_name, filtered_model), '实际参与次数'] = bt.loc['实际参与次数', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '收益率均值'] = bt.loc['收益率均值', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '累计扣费总收益'] = bt.loc['累计扣费总收益', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '去极值总收益'] = bt.loc['累计扣费总收益(极端值调整后)', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '最大回撤'] = bt.loc['最大回撤', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '收益风险比'] = bt.loc['收益风险比', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '夏普比率'] = bt.loc['夏普比率', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '收益夏普比率'] = bt.loc['收益夏普比率', filtered_model]
+        # res_df.loc[(bt_res_name, filtered_model), '预测值与标签IC'] = bt.loc['预测值与标签IC', filtered_model]
+        res_df.loc[(bt_res_name, filtered_model), '预测值与标签RankIC'] = bt.loc['预测值与标签RankIC', filtered_model]
+
+check = pd.concat([res_df.T], axis=1).T
+check.to_excel(root_path + '汇总结果.xlsx')
+from dataApi.sendInfo import send_file
+send_file(check)

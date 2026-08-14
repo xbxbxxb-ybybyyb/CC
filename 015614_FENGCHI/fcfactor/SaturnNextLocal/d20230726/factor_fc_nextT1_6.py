@@ -1,0 +1,43 @@
+# coding: utf-8
+# Author：fengchi863
+# Date ：2023/7/4 20:52
+
+import pandas as pd
+from xquant.factordata import FactorData
+import numpy as np
+s = FactorData()
+
+def calc_mdd(_s):
+    mdd = (np.maximum.accumulate(np.nancumsum(_s)) - np.nancumsum(_s)).max()
+    return -mdd
+
+def factor_fc_nextT1_6(start_date, end_date, IO, return_fillna_dic=False):
+    import sys
+    factor_name = sys._getframe().f_code.co_name[7:]
+
+    if return_fillna_dic:
+        return {factor_name: 0, 'data': ['MD']}
+    # -------------------------------------------------------------------------------------------------------------------
+    start_date_ = int(s.tradingday(str(start_date), -8)[0])
+    md_data = IO.read_data([start_date_, end_date], columns=['amt', 'high', 'low', 'turn', 'pct_chg', 'pre_close'],
+                           alt='/data/group/800080/warehouse/prod/MD/CHINA_STOCK/DAILY/WIND/MD_CHINA_STOCK_DAILY_WIND.h5')
+
+    md_data['pct'] = (md_data['high'] - md_data['low']) / md_data['pre_close']
+    md_data['factor'] = (md_data['pct'] - md_data['pct_chg']) * np.log(md_data['turn'])
+
+    factor_df = pd.DataFrame(md_data['factor'].unstack().rolling(5, min_periods=1).sum().stack())
+    factor_df.columns = [factor_name]
+    # ----------------------------------最高价与最低价差相对于昨收，5日平均-------------------------------------------------------------------------------
+    """
+    29.291666666666668 0.07364342197046171 wj_last10_bbi 0.7327481408483996
+20.841840982437134
+计算本地高相关：
+fc_nextT1_4.h5 0.9998184809327385
+fc_nextT1_5.h5 0.8754585815697321
+    """
+    return factor_df
+
+"""
+日频数据里包含：
+
+"""

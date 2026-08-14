@@ -1,0 +1,84 @@
+# coding: utf-8
+# Author：fengchi863
+# Date ：2023/5/10 21:13
+
+import pandas as pd
+import numpy as np
+import datetime as dt
+import decimal
+def round_(x, n=0):
+    x = x + 1e-8
+    if n > 0:
+        res = float(decimal.Decimal(str(x)).quantize(decimal.Decimal('0.%s1' % ('0' * (n - 1))), rounding=decimal.ROUND_HALF_UP))
+    else:
+        res = int(decimal.Decimal(str(x)).quantize(decimal.Decimal('1'), rounding=decimal.ROUND_HALF_UP))
+    return res
+
+def fun_get_time(time1, sec_delta):
+    # 计算给定时间戳time1在sec_delta秒后的时间戳
+    tmp_time = dt.datetime.strptime(str(time1)[:-3], '%H%M%S')
+    tmp_time2 = tmp_time + dt.timedelta(seconds=sec_delta)
+    tmp_time2_str = tmp_time2.strftime('%H%M%S') + str(time1)[-3:]
+    if (int(tmp_time2_str) > 113000000) & (time1 <= 113000000):
+        adj_tmp_time2 = tmp_time2 + dt.timedelta(seconds=1.5 * 3600)
+        adj_tmp_time2_str = adj_tmp_time2.strftime('%H%M%S') + str(time1)[-3:]
+        return int(adj_tmp_time2_str)
+    elif (int(tmp_time2_str) < 130000000) & (time1 >= 130000000):
+        adj_tmp_time2 = tmp_time2 - dt.timedelta(seconds=1.5 * 3600)
+        adj_tmp_time2_str = adj_tmp_time2.strftime('%H%M%S') + str(time1)[-3:]
+        return int(adj_tmp_time2_str)
+    elif (int(tmp_time2_str) < 93000000) & (time1 >= 93000000):
+        adj_tmp_time2_str = '92500000'
+        return int(adj_tmp_time2_str)
+    elif time1 < 93000000:
+        adj_tmp_time2 = tmp_time2 + dt.timedelta(seconds=4 * 60)
+        adj_tmp_time2_str = adj_tmp_time2.strftime('%H%M%S') + str(time1)[-3:]
+        return int(adj_tmp_time2_str)
+    else:
+        return int(tmp_time2_str)
+
+def factor_fc_ttickab_20231116_2(df, return_fillna_dic=False):
+    import sys
+    factor_name = sys._getframe().f_code.co_name[7:]
+    # ---------------------------------------------tick平均买入价涨跌幅前后区间段CV之和---------------------------------------------------------
+    if return_fillna_dic:
+        return {factor_name: 0}
+
+    def calc_res(part_df_):
+        if len(part_df_) < 2: return 0
+        ret = part_df_['tick_pctchg'].mean() / (part_df_['tick_pctchg'].std() + 1e-4)
+        return ret
+
+    dt, Ticker = df.index[0]
+    zcz = ((Ticker[0:2] == '30') & (dt.strftime('%Y%m%d') >= '20200824')) | (Ticker[0:2] == '68')
+    ZT_Time = df['MDTime'].max()
+    pre_close = df['pre_close'].iloc[0]
+    df = df.query('MDTime >= 93000000')
+    df['tick_pctchg'] = (df['WeightedAvgOfferPx'] / df['pre_close'] - 1) / (zcz + 1)
+
+    part_df1 = df.tail(200)
+    part_df2 = df.head(10)
+    res = calc_res(part_df1) + calc_res(part_df2)
+    # print(res)
+    factor_dict = {factor_name: res}
+    # ---------------------------------------------------------------------------------------------------------------
+    """
+    58.08 0.10
+    =====>>>> 41.62500000000001 0.09969289273628128 78.23175388237736 213.2035792596562 t_big_vwap_chg_sdl，wj_TTick_10_h2prec_max1 0.6318，0.6268
+    """
+    """
+    MDTime: 时间 如101215000
+    TradeBSFlag：不用这个
+    TradeIndex：成交编号，与OrderIndex可匹配
+    TradeBuyNo：买方委托序号 TradeBuyNo > TradeSellNo 主动买入 否则被动买入
+    TradeSellNo：卖方委托序号
+    # 以上委托序号与OrderIndex相同
+    TradeType：成交类别
+    TradeBSFlag：成交方向 1买 2卖
+    TradePrice：成交价格
+    TradeQty：成交数量
+    TradeMoney：成交金额，等于0是撤单的股票
+    pre_close：昨收价
+    ff_shares：流通股数
+    """
+    return pd.Series(factor_dict)

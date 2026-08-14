@@ -1,0 +1,295 @@
+# coding: utf-8
+# Author：fengchi863
+# Date ：2022/6/30 14:29
+
+from HANXU.Timing.StrategyTest import \
+    load_timing_factor, load_timing_factor_test, wf1d1000, calc_test_months, \
+    calc_start_date, calc_end_date, date_list, d2_move_max, d2_move_min
+from dataApi.tradeDate import get_date_range, get_pre_trade_date
+import pandas as pd
+import numpy as np
+import xgboost as xgb
+import random
+import os
+from HANXU.Timing.hyper_param_search.hyper_param_space import best_hyper_param_space
+from keras.models import Sequential
+from keras.layers import LSTM, Dense, Dropout
+
+random.seed(2022)
+
+select_address = '/data/group/800442/800319/Timing/FixFactor/FixFactor/NewSelect/'
+all_model_month = calc_test_months('M')
+model_month = calc_test_months('M', start=201609, end=202111)
+
+fflong_address = '/data/group/800442/800319/Timing/FixFactor/FixFactor/wyl/factor_pools/'
+
+
+# 胡贝尔损失
+def huber_approx_obj(preds, dtrain):
+    d = preds - dtrain.get_label()
+    h = 1
+    scale = 1 + (d / h) ** 2
+    scale_sqrt = np.sqrt(scale)
+    grad = d / scale_sqrt
+    hess = 1 / scale / scale_sqrt
+    return grad, hess
+
+
+# 公平损失
+def fair_obj(preds, dtrain):
+    x = preds - dtrain.get_label()
+    c = 1
+    den = abs(x) + c
+    grad = c*x / den
+    hess = c*c / den ** 2
+    return grad, hess
+
+
+# Log_Cosh Loss功能
+def log_cosh_obj(preds, dtrain):
+    x = preds - dtrain.get_label()
+    grad = np.tanh(x)
+    hess = 1 / np.cosh(x)**2
+    return grad, hess
+
+
+def mape_obj(preds, dtrain):
+    gaps = dtrain.get_label()
+    grad = np.sign(preds - gaps) / gaps
+    hess = 1 / gaps
+    grad[(gaps == 0)] = 0
+    hess[(gaps == 0)] = 0
+    return grad, hess
+
+
+def timing_feature_engineering(X, y, d, t):
+    X = X.reshape(X.shape[0], -1).T
+    y = y.flatten()
+    d = d.flatten()
+    t = t.flatten()
+    valid = (np.isfinite(X).sum(axis=1) > 0.7 * X.shape[1]) & np.isfinite(y)
+    X = X[valid]
+    y = y[valid]
+    d = d[valid]
+    t = t[valid]
+    X[~ np.isfinite(X)] = 0
+    return X, y, d, t
+
+
+def timing_xgb_model(X_train, y_train, d_train, t_train, X_test, y_test,
+                     d_test, t_test, X_pred, d_pred, t_pred, config, obj=None):
+    train = xgb.DMatrix(X_train, label=y_train)
+    test = xgb.DMatrix(X_test, label=y_test)
+    model = xgb.train(config, train,
+                      num_boost_round=config['num_boost_round'],
+                      early_stopping_rounds=config['early_stopping_rounds'],
+                      evals=[(train, 'train'), (test, 'test')],
+                      verbose_eval=False,
+                      obj=obj)
+
+    yh_test = model.predict(xgb.DMatrix(X_test)).flatten()
+    yh_pred = model.predict(xgb.DMatrix(X_pred)).flatten()
+    return yh_test, yh_pred
+
+
+def train_xgb_model_dc(model_func, param, signal_name='XGB400_dc', search_times=0, search_flag=True, obj=None):
+    hyper_search_signal_path = f'/data/group/800442/800319/Timing/BackTest/Signal/hyper_search_{signal_name}/'
+    loss_func_name = getattr(obj, '__name__')
+    signal_path = f'/data/group/800442/800319/Timing/BackTest/Signal/model_ensemble/{loss_func_name}/'
+    if not os.path.exists(signal_path):
+        os.mkdir(signal_path)
+
+    param_copy = param.copy()
+    select_num = param_copy.pop('select_num')
+
+    param_copy.update({
+        'silent': 1,
+    })
+
+    long_dic = {}
+    short_dic = {}
+    long_pred = {}
+    short_pred = {}
+    long_true = {}
+    short_true = {}
+    for mh in model_month:
+        print(mh)
+        test_end = calc_end_date(mh)
+        test_start = get_pre_trade_date(test_end, 38)
+        train_end = get_pre_trade_date(test_start, 2)
+        train_start = calc_start_date(mh, 36)
+        pred_start = get_pre_trade_date(test_end, -2)
+        pred_end = min(get_pre_trade_date(calc_end_date(all_model_month[all_model_month.index(mh) + 1]), -1),
+                       date_list[-1])
+
+        if os.path.exists(f'{select_address}/MixFactor{signal_name}/{mh}_long.pkl'):
+            long_list = pd.read_pickle(f'{select_address}/MixFactor{signal_name}/{mh}_long.pkl')
+        else:
+            os.makedirs(f'{select_address}/MixFactor{signal_name}/', exist_ok=True)
+            long_list1 = pd.read_pickle(f'{select_address}/MixFactorLongAvailable.pkl').index.tolist()
+            long_list2 = pd.read_pickle(f'{fflong_address}/fflong_final_available.pkl').index.tolist()
+            long_list2 = [str(x)[:-4] for x in long_list2]
+            long_list = long_list1 + long_list2
+            long_list = pd.DataFrame({x: load_timing_factor_test(x, mh) for x in long_list}).T
+            long_list['mix_IC'] = long_list['IC'] + long_list['多头IC']
+            long_list['mix_mdd'] = long_list['回撤期多头占比'] / long_list['多头占比'] * long_list['回撤期多头年化']
+            long_list['score'] = long_list['mix_IC'].rank() + long_list['mix_mdd'].rank()
+            long_list = long_list.sort_values('score', ascending=False).head(select_num)
+            pd.to_pickle(long_list, f'{select_address}/MixFactor{signal_name}/{mh}_long.pkl')
+        X = np.r_['0,3', tuple(load_timing_factor(x) * long_list.loc[x, '因子方向'] for x in long_list.index)]
+
+        X_train = X[:, date_list.index(train_start): date_list.index(train_end) + 1]
+        X_test = X[:, date_list.index(test_start): date_list.index(test_end) + 1]
+        X_pred = X[:, date_list.index(pred_start): date_list.index(pred_end) + 1]
+
+        y_train = wf1d1000[date_list.index(train_start): date_list.index(train_end) + 1]
+        y_test = wf1d1000[date_list.index(test_start): date_list.index(test_end) + 1]
+        y_pred = wf1d1000[date_list.index(pred_start): date_list.index(pred_end) + 1]
+
+        d_train = np.asanyarray(get_date_range(train_start, train_end))[:, None].repeat(7, axis=1)
+        d_test = np.asanyarray(get_date_range(test_start, test_end))[:, None].repeat(7, axis=1)
+        d_pred = np.asanyarray(get_date_range(pred_start, pred_end))[:, None].repeat(7, axis=1)
+
+        t_train = np.asanyarray([1000, 1030, 1100, 1300, 1330, 1400, 1430])[None, :].repeat(d_train.shape[0], axis=0)
+        t_test = np.asanyarray([1000, 1030, 1100, 1300, 1330, 1400, 1430])[None, :].repeat(d_test.shape[0], axis=0)
+        t_pred = np.asanyarray([1000, 1030, 1100, 1300, 1330, 1400, 1430])[None, :].repeat(d_pred.shape[0], axis=0)
+
+        X_train, y_train, d_train, t_train = timing_feature_engineering(X_train, y_train, d_train, t_train)
+        X_test, y_test, d_test, t_test = timing_feature_engineering(X_test, y_test, d_test, t_test)
+        X_pred, y_pred, d_pred, t_pred = timing_feature_engineering(X_pred, y_pred, d_pred, t_pred)
+
+        if X_pred.shape[0] != 0:
+            yh1_test, yh1_pred = model_func(X_train, y_train, d_train, t_train, X_test, y_test,
+                                            d_test, t_test, X_pred, d_pred, t_pred, param_copy, obj)
+
+            true_h1_pred = pd.DataFrame({'d': d_pred, 't': t_pred, 'yh': y_pred}).set_index(['d', 't']).unstack()
+            long_true[mh] = true_h1_pred
+
+            h1_test = pd.DataFrame({'d': d_test, 't': t_test, 'yh': yh1_test}).set_index(['d', 't']).unstack()
+            h1_pred = pd.DataFrame({'d': d_pred, 't': t_pred, 'yh': yh1_pred}).set_index(['d', 't']).unstack()
+            h1 = pd.concat([h1_test, h1_pred])
+            h1 = pd.DataFrame(d2_move_max(h1.values, 40, 0.3), index=h1.index[39:], columns=h1.columns).reindex(
+                h1_pred.index)
+            long_dic[mh] = h1
+            long_pred[mh] = h1_pred
+        else:
+            print(f'{mh}_long月份不符合准入条件！')
+
+        if os.path.exists(f'{select_address}/MixFactor{signal_name}/{mh}_short.pkl'):
+            short_list = pd.read_pickle(f'{select_address}/MixFactor{signal_name}/{mh}_short.pkl')
+        else:
+            os.makedirs(f'{select_address}/MixFactor/', exist_ok=True)
+            short_list1 = pd.read_pickle(f'{select_address}/MixFactorShortAvailable.pkl').index.tolist()
+            short_list2 = pd.read_pickle(f'{fflong_address}/fflong_final_available.pkl').index.tolist()
+            short_list2 = [str(x)[:-4] for x in short_list2]
+            short_list = short_list1 + short_list2
+            short_list = pd.DataFrame({x: load_timing_factor_test(x, mh) for x in short_list}).T
+            short_list['mix_IC'] = short_list['IC'] + short_list['空头IC']
+            short_list['mix_mdd'] = short_list['空头占比'] / short_list['回撤期空头占比'] * short_list['回撤期空头年化']
+            short_list['score'] = short_list['mix_IC'].rank() + short_list['mix_mdd'].rank()
+            short_list = short_list.sort_values('score', ascending=False).head(select_num)
+            pd.to_pickle(short_list, f'{select_address}/MixFactor{signal_name}/{mh}_short.pkl')
+        X = np.r_['0,3', tuple(load_timing_factor(x) * short_list.loc[x, '因子方向'] for x in short_list.index)]
+
+        X_train = X[:, date_list.index(train_start): date_list.index(train_end) + 1]
+        X_test = X[:, date_list.index(test_start): date_list.index(test_end) + 1]
+        X_pred = X[:, date_list.index(pred_start): date_list.index(pred_end) + 1]
+
+        y_train = wf1d1000[date_list.index(train_start): date_list.index(train_end) + 1]
+        y_test = wf1d1000[date_list.index(test_start): date_list.index(test_end) + 1]
+        y_pred = wf1d1000[date_list.index(pred_start): date_list.index(pred_end) + 1]
+
+        d_train = np.asanyarray(get_date_range(train_start, train_end))[:, None].repeat(7, axis=1)
+        d_test = np.asanyarray(get_date_range(test_start, test_end))[:, None].repeat(7, axis=1)
+        d_pred = np.asanyarray(get_date_range(pred_start, pred_end))[:, None].repeat(7, axis=1)
+
+        t_train = np.asanyarray([1000, 1030, 1100, 1300, 1330, 1400, 1430])[None, :].repeat(d_train.shape[0], axis=0)
+        t_test = np.asanyarray([1000, 1030, 1100, 1300, 1330, 1400, 1430])[None, :].repeat(d_test.shape[0], axis=0)
+        t_pred = np.asanyarray([1000, 1030, 1100, 1300, 1330, 1400, 1430])[None, :].repeat(d_pred.shape[0], axis=0)
+
+        X_train, y_train, d_train, t_train = timing_feature_engineering(X_train, y_train, d_train, t_train)
+        X_test, y_test, d_test, t_test = timing_feature_engineering(X_test, y_test, d_test, t_test)
+        X_pred, y_pred, d_pred, t_pred = timing_feature_engineering(X_pred, y_pred, d_pred, t_pred)
+
+        if X_pred.shape[0] != 0:
+            yh2_test, yh2_pred = model_func(X_train, y_train, d_train, t_train, X_test, y_test,
+                                            d_test, t_test, X_pred, d_pred, t_pred, param_copy, obj)
+
+            true_h2_pred = pd.DataFrame({'d': d_pred, 't': t_pred, 'yh': y_pred}).set_index(['d', 't']).unstack()
+            short_true[mh] = true_h2_pred
+
+            h2_test = pd.DataFrame({'d': d_test, 't': t_test, 'yh': yh2_test}).set_index(['d', 't']).unstack()
+            h2_pred = pd.DataFrame({'d': d_pred, 't': t_pred, 'yh': yh2_pred}).set_index(['d', 't']).unstack()
+            h2 = pd.concat([h2_test, h2_pred])
+            h2 = pd.DataFrame(d2_move_min(h2.values, 40, 0.3), index=h2.index[39:], columns=h2.columns).reindex(
+                h2_pred.index)
+            short_dic[mh] = h2
+            short_pred[mh] = h2_pred
+        else:
+            print(f'{mh}_short月份不符合准入条件！')
+
+    total_long_pred = pd.concat([long_pred[m] for m in long_pred.keys()], axis=0)
+    total_short_pred = pd.concat([short_pred[m] for m in short_pred.keys()], axis=0)
+    total_long_true = pd.concat([long_true[m] for m in long_pred.keys()], axis=0)
+    total_short_true = pd.concat([short_true[m] for m in short_pred.keys()], axis=0)
+
+    # 为了方便直接读取进行回测
+    long_df = pd.concat([long_dic[x] for x in model_month])
+    short_df = pd.concat([short_dic[x] for x in model_month])
+    long_pred = pd.concat([long_pred[x] for x in model_month])
+    short_pred = pd.concat([short_pred[x] for x in model_month])
+    signal = ((long_df > 0) & (short_df == 0)).astype('float64') - short_df.astype('float64')
+    if search_flag:
+        if not os.path.exists(f'{hyper_search_signal_path}{search_times}/'):
+            os.makedirs(f'{hyper_search_signal_path}{search_times}/', exist_ok=True)
+        signal.to_pickle(f'{hyper_search_signal_path}{search_times}/{signal_name}.pkl')
+        long_pred.to_pickle(f'{hyper_search_signal_path}{search_times}/long_pred_{signal_name}.pkl')
+        short_pred.to_pickle(f'{hyper_search_signal_path}{search_times}/short_pred_{signal_name}.pkl')
+    else:
+        if not os.path.exists(f'{signal_path}/'):
+            os.makedirs(f'{signal_path}/', exist_ok=True)
+        signal.to_pickle(f'{signal_path}/{signal_name}.pkl')
+        long_pred.to_pickle(f'{signal_path}/long_pred_{signal_name}.pkl')
+        short_pred.to_pickle(f'{signal_path}/short_pred_{signal_name}.pkl')
+
+    return total_long_pred, total_short_pred, total_long_true, total_short_true
+
+loss_dict = {
+        'huber_approx_obj': huber_approx_obj,
+        'fair_obj': fair_obj,
+        'log_cosh_obj': log_cosh_obj,
+        'mape_obj': mape_obj
+    }
+
+if __name__ == '__main__':
+    best_xgb_param = {
+        'booster': 'gbtree',
+        'eta': 0.11551529526546109,
+        'colsample_bytree': 0.8561865345374704,
+        'max_depth': 4,
+        'subsample': 0.7594876145527114,
+        'n_estimators': 80,
+        'gamma': 0.08976237191671696,
+        'min_child_weight': 1,
+        'tree_method': 'gpu_hist',
+        'sampling_method': 'gradient_based',
+        'num_boost_round': 1000,
+        'early_stopping_rounds': 200,
+        'n_jobs': 10,  # 模型内部并行运算
+        'eval_metric': 'mae',
+
+        'select_num': 400  # 已寻
+    }
+
+    ensemble_model_path = '/data/group/800442/800319/Timing/BackTest/Signal/model_ensemble/'
+    for loss_name in loss_dict:
+        loss_func = loss_dict[loss_name]
+        print(f'使用损失函数{loss_name}进行训练...')
+        train_xgb_model_dc(timing_xgb_model,
+                           param=best_xgb_param,
+                           signal_name='XGB400_dc_multiLoss',
+                           search_times=0,
+                           search_flag=False,
+                           obj=loss_func)
+
+
